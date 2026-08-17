@@ -1,0 +1,20 @@
+{
+  "folders": [
+    {
+      "name": "receiver",
+      "path": "receiver"
+    },
+    {
+      "name": "broadcaster",
+      "path": "broadcaster"
+    },
+    {
+      "name": "common",
+      "path": "common"
+    },
+    {
+      "name": "tools",
+      "path": "tools"
+    }
+  ]
+}

@@ -12,6 +12,8 @@
 #include "web_server.h"
 #include "esp_log.h"
 #include "esp_system.h"
+#include "esp_mac.h"
+#include "esp_timer.h"
 #include "nvs_flash.h"
 #include "mdns.h"
 #include "sdkconfig.h"
@@ -25,21 +27,7 @@ static const char *TAG = "app_main";
 static void session_monitor_task(void *arg)
 {
     while (1) {
-        vTaskDelay(pdMS_TO_TICKS(1000));
-
-        // Check if session should auto-stop
-        extern bool s_session_running;
-        extern uint32_t s_session_duration;
-        extern int64_t s_session_start_time;
-
-        if (s_session_running) {
-            int64_t elapsed = (esp_timer_get_time() - s_session_start_time) / 1000000;
-            if (elapsed >= s_session_duration) {
-                ESP_LOGI(TAG, "Session duration reached, stopping...");
-                // Trigger stop via web API
-                // (In production, call session_stop_handler directly)
-            }
-        }
+        vTaskDelay(pdMS_TO_TICKS(10000));
     }
 }
 

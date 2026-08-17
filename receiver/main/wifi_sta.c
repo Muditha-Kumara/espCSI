@@ -114,13 +114,13 @@ bool wifi_sta_is_connected(void)
     return s_connected;
 }
 
-void wifi_sta_disconnect(void)
+void receiver_wifi_sta_disconnect(void)
 {
     esp_wifi_disconnect();
     s_connected = false;
 }
 
-void wifi_sta_reconnect(void)
+void receiver_wifi_sta_reconnect(void)
 {
     s_retry_count = 0;
     esp_wifi_disconnect();

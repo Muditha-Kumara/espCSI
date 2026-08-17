@@ -5,6 +5,7 @@
 
 #include "csi_capture.h"
 #include "esp_wifi.h"
+#include "esp_mac.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -29,10 +30,10 @@ static void csi_rx_callback(void *ctx, wifi_csi_info_t *info)
 
     s_frame_count++;
 
-    // Format: CSI_DATA,<id>,<mac>,<rssi>,<rate>,<noise_floor>,<channel>,<timestamp>,<sig_len>,<rx_format>,<len>,<first_word>,"[i,q,...]"
+    // Format: CSI_DATA,<id>,<mac>,<rssi>,<rate>,<noise_floor>,<channel>,<timestamp>,<sig_len>,<rx_format>,<len>,<first_word_invalid>,"[i,q,...]"
     int offset = snprintf(s_csv_buf, sizeof(s_csv_buf),
-        "CSI_DATA,%u," MACSTR ",%d,%d,%d,%d,%lld,%d,%d,%d,%d,\"[",
-        s_frame_count,
+        "CSI_DATA,%lu," MACSTR ",%d,%d,%d,%d,%lld,%d,%d,%d,%d,\"[",
+        (unsigned long)s_frame_count,
         MAC2STR(info->mac),
         info->rx_ctrl.rssi,
         info->rx_ctrl.rate,
@@ -42,7 +43,7 @@ static void csi_rx_callback(void *ctx, wifi_csi_info_t *info)
         info->rx_ctrl.sig_len,
         info->rx_ctrl.rx_state,
         info->len,
-        info->first_word);
+        info->first_word_invalid);
 
     // Append I/Q pairs
     const int8_t *data = info->buf;

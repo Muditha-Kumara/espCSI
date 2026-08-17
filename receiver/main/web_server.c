@@ -14,6 +14,7 @@
 #include "esp_log.h"
 #include "esp_app_desc.h"
 #include "esp_mac.h"
+#include "esp_timer.h"
 #include "cJSON.h"
 #include "sdkconfig.h"
 #include <string.h>
@@ -246,7 +247,14 @@ static esp_err_t sessions_list_handler(httpd_req_t *req)
 static esp_err_t session_download_handler(httpd_req_t *req)
 {
     char buf[128];
-    int ret = httpd_req_get_url_query_var(req, "file", buf, sizeof(buf));
+    char query[256];
+    esp_err_t ret = httpd_req_get_url_query_str(req, query, sizeof(query));
+    if (ret != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing file parameter");
+        return ESP_FAIL;
+    }
+
+    ret = httpd_query_key_value(query, "file", buf, sizeof(buf));
     if (ret != ESP_OK) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing file parameter");
         return ESP_FAIL;
@@ -283,7 +291,14 @@ static esp_err_t session_download_handler(httpd_req_t *req)
 static esp_err_t session_delete_handler(httpd_req_t *req)
 {
     char buf[128];
-    int ret = httpd_req_get_url_query_var(req, "file", buf, sizeof(buf));
+    char query[256];
+    esp_err_t ret = httpd_req_get_url_query_str(req, query, sizeof(query));
+    if (ret != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing file parameter");
+        return ESP_FAIL;
+    }
+
+    ret = httpd_query_key_value(query, "file", buf, sizeof(buf));
     if (ret != ESP_OK) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing file parameter");
         return ESP_FAIL;

@@ -34,12 +34,12 @@ bool wifi_sta_is_connected(void);
 /**
  * @brief Disconnect Wi-Fi
  */
-void wifi_sta_disconnect(void);
+void receiver_wifi_sta_disconnect(void);
 
 /**
  * @brief Reconnect Wi-Fi
  */
-void wifi_sta_reconnect(void);
+void receiver_wifi_sta_reconnect(void);
 
 /**
  * @brief Get current Wi-Fi channel

@@ -9,7 +9,7 @@ idf_component_register(
          "led.c"
     INCLUDE_DIRS "."
     EMBED_FILES "www/index.html"
-    REQUIRES esp_wifi esp_now esp_http_server esp_https_ota esp_app_format
-             nvs_flash fatfs esp_timer esp_netif esp_event mdns json
-             espnow_proto
+    REQUIRES esp_wifi esp_http_server esp_https_ota esp_app_format
+             nvs_flash fatfs esp_timer esp_netif esp_event mdns cjson
+             bootloader_support mbedtls espnow_proto
 )

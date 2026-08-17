@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 static const char *TAG = "session_store";
 
@@ -139,7 +140,7 @@ esp_err_t session_store_list(char *buf, size_t buf_size)
         }
 
         // Get file size
-        char full_path[256];
+        char full_path[512];
         snprintf(full_path, sizeof(full_path), "%s/%s", MOUNT_POINT, entry->d_name);
         struct stat st;
         stat(full_path, &st);
