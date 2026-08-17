@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP-CSI Receiver</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        header {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            color: #667eea;
+            font-size: 28px;
+        }
+
+        .status-bar {
+            display: flex;
+            gap: 20px;
+            margin-top: 10px;
+            flex-wrap: wrap;
+        }
+
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #ccc;
+        }
+
+        .status-dot.active {
+            background: #10b981;
+            box-shadow: 0 0 8px #10b981;
+        }
+
+        .status-dot.warning {
+            background: #f59e0b;
+            box-shadow: 0 0 8px #f59e0b;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .card h2 {
+            color: #374151;
+            font-size: 20px;
+            margin-bottom: 15px;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #374151;
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #e5e7eb;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: border-color 0.2s;
+        }
+
+        input:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+            width: 100%;
+        }
+
+        button:hover:not(:disabled) {
+            background: #5568d3;
+        }
+
+        button:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+        }
+
+        button.danger {
+            background: #ef4444;
+        }
+
+        button.danger:hover:not(:disabled) {
+            background: #dc2626;
+        }
+
+        button.success {
+            background: #10b981;
+        }
+
+        button.success:hover:not(:disabled) {
+            background: #059669;
+        }
+
+        .session-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .session-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            margin-bottom: 10px;
+            transition: background 0.2s;
+        }
+
+        .session-item:hover {
+            background: #f9fafb;
+        }
+
+        .session-info {
+            flex: 1;
+        }
+
+        .session-name {
+            font-weight: 600;
+            color: #374151;
+            margin-bottom: 4px;
+        }
+
+        .session-meta {
+            font-size: 12px;
+            color: #6b7280;
+        }
+
+        .session-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .session-actions button {
+            width: auto;
+            padding: 6px 12px;
+            font-size: 12px;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+
+        .info-item {
+            padding: 12px;
+            background: #f9fafb;
+            border-radius: 6px;
+        }
+
+        .info-label {
+            font-size: 12px;
+            color: #6b7280;
+            margin-bottom: 4px;
+        }
+
+        .info-value {
+            font-size: 16px;
+            font-weight: 600;
+            color: #374151;
+        }
+
+        .alert {
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            font-size: 14px;
+        }
+
+        .alert-info {
+            background: #dbeafe;
+            color: #1e40af;
+            border: 1px solid #93c5fd;
+        }
+
+        .alert-success {
+            background: #d1fae5;
+            color: #065f46;
+            border: 1px solid #6ee7b7;
+        }
+
+        .alert-error {
+            background: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #fca5a5;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #6b7280;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .pulse {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📡 ESP-CSI Receiver</h1>
+            <div class="status-bar">
+                <div class="status-item">
+                    <div class="status-dot" id="wifi-status"></div>
+                    <span>WiFi</span>
+                </div>
+                <div class="status-item">
+                    <div class="status-dot" id="broadcaster-status"></div>
+                    <span>Broadcaster</span>
+                </div>
+                <div class="status-item">
+                    <div class="status-dot" id="session-status"></div>
+                    <span>Session</span>
+                </div>
+                <div class="status-item">
+                    <span id="version">v0.0.0</span>
+                </div>
+            </div>
+        </header>
+
+        <div class="grid">
+            <!-- Session Control -->
+            <div class="card">
+                <h2>🎯 Session Control</h2>
+                <div id="session-alert"></div>
+                <form id="session-form">
+                    <div class="form-group">
+                        <label for="label">Activity Label</label>
+                        <input type="text" id="label" placeholder="e.g., walking, sitting" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="channel">WiFi Channel</label>
+                        <select id="channel" required>
+                            <option value="1">Channel 1</option>
+                            <option value="6" selected>Channel 6</option>
+                            <option value="11">Channel 11</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="rate">Broadcast Rate (Hz)</label>
+                        <input type="number" id="rate" min="10" max="200" value="100" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="duration">Duration (seconds)</label>
+                        <input type="number" id="duration" min="5" max="3600" value="60" required>
+                    </div>
+                    <button type="submit" id="start-btn">Start Session</button>
+                </form>
+                <button id="stop-btn" class="danger" style="margin-top: 10px; display: none;">Stop Session</button>
+            </div>
+
+            <!-- System Info -->
+            <div class="card">
+                <h2>ℹ️ System Information</h2>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <div class="info-label">Hostname</div>
+                        <div class="info-value" id="hostname">-</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">MAC Address</div>
+                        <div class="info-value" id="mac">-</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Current Channel</div>
+                        <div class="info-value" id="current-channel">-</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Storage Free</div>
+                        <div class="info-value" id="storage-free">-</div>
+                    </div>
+                </div>
+                <div id="session-info" style="margin-top: 15px; display: none;">
+                    <div class="alert alert-info">
+                        <strong>Active Session:</strong>
+                        <div id="session-details"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- OTA Updates -->
+            <div class="card">
+                <h2>🔄 OTA Updates</h2>
+                <div id="ota-status" class="alert alert-info">
+                    Checking for updates...
+                </div>
+                <button id="ota-check-btn">Check for Updates</button>
+            </div>
+        </div>
+
+        <!-- Sessions List -->
+        <div class="card">
+            <h2>📁 Recorded Sessions</h2>
+            <div id="sessions-container">
+                <div class="loading">Loading sessions...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '';
+        let statusInterval = null;
+        let sessionRunning = false;
+
+        // Format bytes to human readable
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+        }
+
+        // Show alert message
+        function showAlert(containerId, message, type = 'info') {
+            const container = document.getElementById(containerId);
+            container.innerHTML = `<div class="alert alert-${type}">${message}</div>`;
+            if (type === 'success' || type === 'error') {
+                setTimeout(() => {
+                    container.innerHTML = '';
+                }, 5000);
+            }
+        }
+
+        // Fetch system status
+        async function fetchStatus() {
+            try {
+                const response = await fetch(`${API_BASE}/api/status`);
+                const data = await response.json();
+
+                // Update status indicators
+                document.getElementById('wifi-status').className = 
+                    `status-dot ${data.wifi_connected ? 'active' : ''}`;
+                document.getElementById('broadcaster-status').className = 
+                    `status-dot ${data.broadcaster_paired ? 'active' : 'warning'}`;
+                document.getElementById('session-status').className = 
+                    `status-dot ${data.session_running ? 'active pulse' : ''}`;
+
+                // Update info
+                document.getElementById('version').textContent = `v${data.version}`;
+                document.getElementById('hostname').textContent = data.hostname;
+                document.getElementById('mac').textContent = data.mac;
+                document.getElementById('current-channel').textContent = data.channel;
+                document.getElementById('storage-free').textContent = formatBytes(data.storage_free);
+
+                // Update session state
+                sessionRunning = data.session_running;
+                const startBtn = document.getElementById('start-btn');
+                const stopBtn = document.getElementById('stop-btn');
+                const sessionForm = document.getElementById('session-form');
+
+                if (sessionRunning) {
+                    startBtn.style.display = 'none';
+                    stopBtn.style.display = 'block';
+                    sessionForm.querySelectorAll('input, select').forEach(el => el.disabled = true);
+                    
+                    document.getElementById('session-info').style.display = 'block';
+                    document.getElementById('session-details').innerHTML = `
+                        <div>Label: ${data.session_label}</div>
+                        <div>Channel: ${data.session_channel}</div>
+                        <div>Rate: ${data.session_rate} Hz</div>
+                        <div>Elapsed: ${data.session_elapsed}s / ${data.session_duration}s</div>
+                        <div>Frames: ${data.frames_captured}</div>
+                    `;
+                } else {
+                    startBtn.style.display = 'block';
+                    stopBtn.style.display = 'none';
+                    sessionForm.querySelectorAll('input, select').forEach(el => el.disabled = false);
+                    document.getElementById('session-info').style.display = 'none';
+                }
+
+                // Update OTA status
+                document.getElementById('ota-status').textContent = data.ota_state;
+
+            } catch (error) {
+                console.error('Failed to fetch status:', error);
+            }
+        }
+
+        // Fetch sessions list
+        async function fetchSessions() {
+            try {
+                const response = await fetch(`${API_BASE}/api/sessions`);
+                const sessions = await response.json();
+                const container = document.getElementById('sessions-container');
+
+                if (sessions.length === 0) {
+                    container.innerHTML = '<div class="loading">No sessions recorded yet</div>';
+                    return;
+                }
+
+                container.innerHTML = '<div class="session-list">' + 
+                    sessions.map(session => `
+                        <div class="session-item">
+                            <div class="session-info">
+                                <div class="session-name">${session.name}</div>
+                                <div class="session-meta">${formatBytes(session.size)}</div>
+                            </div>
+                            <div class="session-actions">
+                                <button onclick="downloadSession('${session.name}')" class="success">Download</button>
+                                <button onclick="deleteSession('${session.name}')" class="danger">Delete</button>
+                            </div>
+                        </div>
+                    `).join('') + 
+                '</div>';
+
+            } catch (error) {
+                console.error('Failed to fetch sessions:', error);
+                document.getElementById('sessions-container').innerHTML = 
+                    '<div class="loading">Failed to load sessions</div>';
+            }
+        }
+
+        // Start session
+        document.getElementById('session-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const data = {
+                label: document.getElementById('label').value,
+                channel: parseInt(document.getElementById('channel').value),
+                rate: parseInt(document.getElementById('rate').value),
+                duration: parseInt(document.getElementById('duration').value)
+            };
+
+            try {
+                const response = await fetch(`${API_BASE}/api/session/start`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+
+                if (response.ok) {
+                    showAlert('session-alert', 'Session started successfully!', 'success');
+                    fetchStatus();
+                } else {
+                    const error = await response.text();
+                    showAlert('session-alert', `Failed to start session: ${error}`, 'error');
+                }
+            } catch (error) {
+                showAlert('session-alert', `Error: ${error.message}`, 'error');
+            }
+        });
+
+        // Stop session
+        document.getElementById('stop-btn').addEventListener('click', async () => {
+            try {
+                const response = await fetch(`${API_BASE}/api/session/stop`, {
+                    method: 'POST'
+                });
+
+                if (response.ok) {
+                    showAlert('session-alert', 'Session stopped successfully!', 'success');
+                    fetchStatus();
+                    fetchSessions();
+                } else {
+                    const error = await response.text();
+                    showAlert('session-alert', `Failed to stop session: ${error}`, 'error');
+                }
+            } catch (error) {
+                showAlert('session-alert', `Error: ${error.message}`, 'error');
+            }
+        });
+
+        // Download session
+        function downloadSession(filename) {
+            window.location.href = `${API_BASE}/api/sessions/download?file=${encodeURIComponent(filename)}`;
+        }
+
+        // Delete session
+        async function deleteSession(filename) {
+            if (!confirm(`Delete session "${filename}"?`)) return;
+
+            try {
+                const response = await fetch(`${API_BASE}/api/sessions?file=${encodeURIComponent(filename)}`, {
+                    method: 'DELETE'
+                });
+
+                if (response.ok) {
+                    showAlert('session-alert', 'Session deleted successfully!', 'success');
+                    fetchSessions();
+                    fetchStatus();
+                } else {
+                    const error = await response.text();
+                    showAlert('session-alert', `Failed to delete: ${error}`, 'error');
+                }
+            } catch (error) {
+                showAlert('session-alert', `Error: ${error.message}`, 'error');
+            }
+        }
+
+        // Check for OTA updates
+        document.getElementById('ota-check-btn').addEventListener('click', async () => {
+            try {
+                const response = await fetch(`${API_BASE}/api/ota/check`, {
+                    method: 'POST'
+                });
+
+                if (response.ok) {
+                    showAlert('session-alert', 'OTA check initiated. Check status in a moment.', 'success');
+                } else {
+                    const error = await response.text();
+                    showAlert('session-alert', `Failed to check OTA: ${error}`, 'error');
+                }
+            } catch (error) {
+                showAlert('session-alert', `Error: ${error.message}`, 'error');
+            }
+        });
+
+        // Initial load
+        fetchStatus();
+        fetchSessions();
+
+        // Poll status every 2 seconds
+        statusInterval = setInterval(fetchStatus, 2000);
+
+        // Refresh sessions every 10 seconds
+        setInterval(fetchSessions, 10000);
+    </script>
+</body>
+</html>
