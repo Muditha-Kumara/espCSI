@@ -6,7 +6,7 @@ idf_component_register(
          "ota_client.c"
          "led.c"
     INCLUDE_DIRS "."
-    REQUIRES esp_wifi esp_now esp_https_ota esp_app_format
+    REQUIRES esp_wifi esp_driver_gpio esp_https_ota esp_app_format bootloader_support mbedtls
              nvs_flash esp_timer esp_netif esp_event
              espnow_proto
 )

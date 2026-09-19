@@ -17,6 +17,8 @@
 #include "esp_timer.h"
 #include "cJSON.h"
 #include "sdkconfig.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -134,33 +136,50 @@ static esp_err_t session_start_handler(httpd_req_t *req)
         return ESP_FAIL;
     }
 
+    int ch = channel->valueint;
+    int rate_hz = rate->valueint;
+    int dur_s = duration->valueint;
+    if (ch < 1 || ch > 13) {
+        cJSON_Delete(root);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Channel must be 1-13");
+        return ESP_FAIL;
+    }
+    if (rate_hz < 10 || rate_hz > 200) {
+        cJSON_Delete(root);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Rate must be 10-200 Hz");
+        return ESP_FAIL;
+    }
+    if (dur_s < 1 || dur_s > 3600) {
+        cJSON_Delete(root);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Duration must be 1-3600 s");
+        return ESP_FAIL;
+    }
+
     strncpy(s_session_label, label->valuestring, sizeof(s_session_label) - 1);
-    s_session_channel = (uint8_t)channel->valueint;
-    s_session_rate = (uint16_t)rate->valueint;
-    s_session_duration = (uint32_t)duration->valueint;
+    s_session_channel = (uint8_t)ch;
+    s_session_rate = (uint16_t)rate_hz;
+    s_session_duration = (uint32_t)dur_s;
+
+    uint8_t broadcaster_mac[6];
+    bool have_bcast = espnow_ctrl_get_broadcaster_mac(broadcaster_mac);
 
     cJSON_Delete(root);
 
-    // Start session
+    // Start session file
     esp_err_t err = session_store_begin(s_session_label, s_session_channel, s_session_rate);
     if (err != ESP_OK) {
+        s_session_label[0] = '\0';
+        s_session_channel = 0; s_session_rate = 0; s_session_duration = 0;
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to start session");
         return ESP_FAIL;
     }
 
-    // Switch to work channel
-    wifi_sta_set_channel(s_session_channel);
+    // Keep the pairing indicator stable for the whole session: the broadcaster
+    // stops announcing once it starts beaming, so is_paired() would otherwise
+    // go stale and a later STOP would be rejected.
+    espnow_ctrl_session_hold(true);
 
-    // Start CSI capture
-    err = csi_capture_start(s_session_channel, csi_data_handler);
-    if (err != ESP_OK) {
-        session_store_end();
-        wifi_sta_restore_channel();
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to start CSI capture");
-        return ESP_FAIL;
-    }
-
-    // Send START to broadcaster
+    // Build START command
     espnow_start_t start_msg = {
         .magic = ESPNOW_PROTO_MAGIC,
         .cmd = ESPNOW_CMD_START,
@@ -170,33 +189,92 @@ static esp_err_t session_start_handler(httpd_req_t *req)
     };
     snprintf((char *)start_msg.session_id, sizeof(start_msg.session_id), "%s", session_store_get_id());
 
+    // IMPORTANT: send START *before* switching our own channel. Both devices
+    // are still on the shared home channel now; if we moved first, the
+    // broadcaster (still on the home channel) would never receive it.
+    // send_start() retries until the broadcaster ACKs, so by the time it
+    // returns the broadcaster has the command and is switching too.
     err = espnow_ctrl_send_start(&start_msg);
     if (err != ESP_OK) {
-        csi_capture_stop();
+        espnow_ctrl_session_hold(false);
         session_store_end();
-        wifi_sta_restore_channel();
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to send START");
+        s_session_label[0] = '\0';
+        s_session_channel = 0; s_session_rate = 0; s_session_duration = 0;
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Broadcaster did not acknowledge START");
         return ESP_FAIL;
     }
 
+    // Mark the session running *before* responding so a concurrent start
+    // request hits the "already running" guard while we retune the radio.
     s_session_running = true;
     s_session_start_time = esp_timer_get_time();
+
+    // Respond *before* touching the radio: disconnecting the STA (inside
+    // wifi_sta_set_channel) kills the HTTP socket mid-response, which made
+    // clients see an empty reply (httpd "error in send: 113") even though
+    // the session had started fine. If a later step fails we tear the
+    // session down below; /api/status reflects it and the UI polls that.
+    httpd_resp_send(req, "{\"status\":\"ok\"}", strlen("{\"status\":\"ok\"}"));
+
+    // Let the broadcaster finish its own channel switch before we retune.
+    vTaskDelay(pdMS_TO_TICKS(200));
+
+    // Now move our radio to the work channel for CSI capture.
+    wifi_sta_set_reconnect_suppressed(true);
+    err = wifi_sta_set_channel(s_session_channel);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Post-start: channel switch failed, aborting session");
+        espnow_stop_t stop_msg = { .magic = ESPNOW_PROTO_MAGIC, .cmd = ESPNOW_CMD_STOP };
+        const char *sid = session_store_get_id();
+        if (sid) memcpy(stop_msg.session_id, sid, SESSION_ID_LEN);
+        espnow_ctrl_send_stop(&stop_msg);
+        espnow_ctrl_session_hold(false);
+        wifi_sta_set_reconnect_suppressed(false);
+        csi_capture_stop();
+        session_store_end();
+        wifi_sta_restore_channel();
+        s_session_running = false;
+        s_session_label[0] = '\0';
+        s_session_channel = 0; s_session_rate = 0; s_session_duration = 0;
+        return ESP_OK;  // response already sent
+    }
+
+    // Only capture CSI frames originating from the broadcaster.
+    csi_capture_set_source_mac(have_bcast ? broadcaster_mac : NULL);
+
+    // Start CSI capture
+    err = csi_capture_start(s_session_channel, csi_data_handler);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Post-start: CSI capture failed, aborting session");
+        espnow_stop_t stop_msg = { .magic = ESPNOW_PROTO_MAGIC, .cmd = ESPNOW_CMD_STOP };
+        const char *sid = session_store_get_id();
+        if (sid) memcpy(stop_msg.session_id, sid, SESSION_ID_LEN);
+        espnow_ctrl_send_stop(&stop_msg);
+        espnow_ctrl_session_hold(false);
+        csi_capture_stop();
+        session_store_end();
+        wifi_sta_restore_channel();
+        s_session_running = false;
+        s_session_label[0] = '\0';
+        s_session_channel = 0; s_session_rate = 0; s_session_duration = 0;
+        return ESP_OK;  // response already sent
+    }
+
     led_blink(100, 100);  // Fast blink during session
 
     ESP_LOGI(TAG, "Session started: %s ch=%d rate=%dHz dur=%ds",
              s_session_label, s_session_channel, s_session_rate, s_session_duration);
 
-    httpd_resp_send(req, "{\"status\":\"ok\"}", strlen("{\"status\":\"ok\"}"));
     return ESP_OK;
 }
 
-// POST /api/session/stop - Stop current session
-static esp_err_t session_stop_handler(httpd_req_t *req)
+// Internal: stop the running session (used by HTTP handler and timeout task)
+static void session_stop_internal(void)
 {
-    if (!s_session_running) {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No session running");
-        return ESP_FAIL;
-    }
+    // Stop CSI capture first: this turns promiscuous mode off, returning the
+    // radio to the normal RX path so ESP-NOW below works reliably.
+    csi_capture_stop();
+    csi_capture_set_source_mac(NULL);
 
     // Send STOP to broadcaster
     espnow_stop_t stop_msg = {
@@ -209,20 +287,53 @@ static esp_err_t session_stop_handler(httpd_req_t *req)
     }
     espnow_ctrl_send_stop(&stop_msg);
 
-    // Stop CSI capture
-    csi_capture_stop();
-
     // Close session file
     session_store_end();
 
-    // Restore Wi-Fi channel
+    // Restore Wi-Fi channel (also re-enables auto-reconnect)
     wifi_sta_restore_channel();
+
+    // Announce-based pairing checks apply again once the broadcaster resumes
+    espnow_ctrl_session_hold(false);
 
     s_session_running = false;
     led_stop_blink();
     led_on();  // Solid on when idle
 
     ESP_LOGI(TAG, "Session stopped");
+}
+
+void web_server_stop_session(void)
+{
+    if (!s_session_running) return;
+    session_stop_internal();
+}
+
+bool web_server_session_is_running(void)
+{
+    return s_session_running;
+}
+
+uint32_t web_server_session_elapsed_s(void)
+{
+    if (!s_session_running) return 0;
+    return (uint32_t)((esp_timer_get_time() - s_session_start_time) / 1000000);
+}
+
+uint32_t web_server_session_duration_s(void)
+{
+    return s_session_duration;
+}
+
+// POST /api/session/stop - Stop current session
+static esp_err_t session_stop_handler(httpd_req_t *req)
+{
+    if (!s_session_running) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No session running");
+        return ESP_FAIL;
+    }
+
+    session_stop_internal();
 
     httpd_resp_send(req, "{\"status\":\"ok\"}", strlen("{\"status\":\"ok\"}"));
     return ESP_OK;
@@ -231,15 +342,22 @@ static esp_err_t session_stop_handler(httpd_req_t *req)
 // GET /api/sessions - List all sessions
 static esp_err_t sessions_list_handler(httpd_req_t *req)
 {
-    char buf[4096];
-    esp_err_t err = session_store_list(buf, sizeof(buf));
+    char *buf = malloc(8192);
+    if (buf == NULL) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Memory allocation failed");
+        return ESP_FAIL;
+    }
+    
+    esp_err_t err = session_store_list(buf, 8192);
     if (err != ESP_OK) {
+        free(buf);
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to list sessions");
         return ESP_FAIL;
     }
 
     httpd_resp_set_type(req, "application/json");
     httpd_resp_send(req, buf, strlen(buf));
+    free(buf);
     return ESP_OK;
 }
 

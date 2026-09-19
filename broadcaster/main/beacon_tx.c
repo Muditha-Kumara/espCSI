@@ -30,9 +30,11 @@ typedef struct {
 
 static tx_params_t s_params;
 
-static void espnow_send_cb(const uint8_t *mac_addr, esp_now_send_status_t status)
+static void espnow_send_cb(const esp_now_send_info_t *tx_info, esp_now_send_status_t status)
 {
     // Don't log every send to avoid overhead
+    (void)tx_info;
+    (void)status;
 }
 
 static void beacon_task(void *arg)

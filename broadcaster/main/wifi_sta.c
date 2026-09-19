@@ -23,6 +23,7 @@ static EventGroupHandle_t s_wifi_event_group = NULL;
 static int s_retry_count = 0;
 static bool s_connected = false;
 static uint8_t s_home_channel = 0;
+static volatile bool s_suppress_reconnect = false;
 
 static void wifi_event_handler(void *arg, esp_event_base_t event_base,
                                 int32_t event_id, void *event_data)
@@ -31,7 +32,12 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
         esp_wifi_connect();
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
         s_connected = false;
-        if (s_retry_count < WIFI_MAX_RETRY) {
+        if (s_suppress_reconnect) {
+            // Intentional disconnect: the session moved us to a work channel.
+            // Reconnecting would drag the radio back to the home AP channel
+            // and break ESP-NOW rendezvous with the receiver.
+            ESP_LOGI(TAG, "Disconnected (reconnect suppressed for session)");
+        } else if (s_retry_count < WIFI_MAX_RETRY) {
             esp_wifi_connect();
             s_retry_count++;
             ESP_LOGI(TAG, "Retrying connection (%d/%d)", s_retry_count, WIFI_MAX_RETRY);
@@ -82,6 +88,21 @@ esp_err_t wifi_sta_init(void)
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
 
+    // Disable power save: modem sleep makes the STA miss ESP-NOW frames
+    // (START/STOP commands from the receiver) between DTIM windows.
+    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
+
+    // Allow channels 1-13: with the default AUTO policy the STA inherits the
+    // home AP's country info, which often limits 2.4GHz to channels 1-11 and
+    // makes esp_wifi_set_channel(13) fail.
+    wifi_country_t country = {
+        .cc = "CN",
+        .schan = 1,
+        .nchan = 13,
+        .policy = WIFI_COUNTRY_POLICY_MANUAL,
+    };
+    ESP_ERROR_CHECK(esp_wifi_set_country(&country));
+
     ESP_LOGI(TAG, "WiFi STA initialized, connecting to '%s'", CONFIG_WIFI_SSID);
     return ESP_OK;
 }
@@ -106,7 +127,7 @@ bool wifi_sta_is_connected(void)
     return s_connected;
 }
 
-void wifi_sta_disconnect(void)
+static void wifi_sta_disconnect(void)
 {
     esp_wifi_disconnect();
     s_connected = false;
@@ -123,11 +144,59 @@ uint8_t wifi_sta_get_channel(void)
 esp_err_t wifi_sta_set_channel(uint8_t channel)
 {
     if (channel < 1 || channel > 13) return ESP_ERR_INVALID_ARG;
-    return esp_wifi_set_channel(channel, WIFI_SECOND_CHAN_NONE);
+
+    // esp_wifi_set_channel() is rejected while the STA is associated or
+    // mid-connect ("STA is scanning or connecting ... cannot set channel").
+    // The session runs off the home AP anyway, so disconnect first.
+    esp_wifi_disconnect();
+    s_connected = false;
+    vTaskDelay(pdMS_TO_TICKS(150));
+
+    // Re-assert the country after disconnecting: the driver may revert to
+    // the AP's (AUTO) country info on disconnect, which would clamp ch 12-13.
+    wifi_country_t country = {
+        .cc = "CN",
+        .schan = 1,
+        .nchan = 13,
+        .policy = WIFI_COUNTRY_POLICY_MANUAL,
+    };
+    esp_wifi_set_country(&country);
+
+    uint8_t primary = 0;
+    wifi_second_chan_t second = 0;
+    for (int i = 0; i < 20; i++) {
+        esp_wifi_set_channel(channel, WIFI_SECOND_CHAN_NONE);
+        esp_wifi_get_channel(&primary, &second);
+        if (primary == channel) {
+            ESP_LOGI(TAG, "Radio tuned to channel %d", primary);
+            return ESP_OK;
+        }
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+    ESP_LOGE(TAG, "Failed to tune to channel %d (radio at %d)", channel, primary);
+    return ESP_FAIL;
+}
+
+void wifi_sta_set_reconnect_suppressed(bool suppress)
+{
+    s_suppress_reconnect = suppress;
+    if (!suppress) {
+        s_retry_count = 0;
+    }
 }
 
 esp_err_t wifi_sta_restore_channel(void)
 {
     if (s_home_channel == 0) return ESP_ERR_INVALID_STATE;
-    return esp_wifi_set_channel(s_home_channel, WIFI_SECOND_CHAN_NONE);
+
+    // End of session: allow reconnects again, move back to the home channel
+    // and re-associate explicitly (the channel switch disconnected the STA
+    // while reconnects were suppressed).
+    s_suppress_reconnect = false;
+    s_retry_count = 0;
+    esp_err_t ret = esp_wifi_set_channel(s_home_channel, WIFI_SECOND_CHAN_NONE);
+    if (!s_connected) {
+        esp_wifi_connect();
+    }
+    return ret;
 }

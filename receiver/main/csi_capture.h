@@ -35,6 +35,17 @@ esp_err_t csi_capture_init(void);
 esp_err_t csi_capture_start(uint8_t channel, csi_data_cb_t cb);
 
 /**
+ * @brief Restrict capture to frames from a specific source MAC.
+ *
+ * ESP-NOW beacons from the broadcaster are the intended CSI source; other
+ * Wi-Fi traffic on the same channel would pollute the dataset. Pass NULL
+ * to capture from any source (default).
+ *
+ * @param mac  6-byte source MAC address, or NULL to disable filtering
+ */
+void csi_capture_set_source_mac(const uint8_t *mac);
+
+/**
  * @brief Stop CSI capture
  */
 void csi_capture_stop(void);

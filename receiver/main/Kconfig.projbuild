@@ -2,13 +2,13 @@ menu "CSI Receiver Configuration"
 
     config WIFI_SSID
         string "WiFi SSID"
-        default "myssid"
+        default "your-ssid"
         help
             SSID (network name) to connect to.
 
     config WIFI_PASSWORD
         string "WiFi Password"
-        default "mypassword"
+        default "your-password"
         help
             WiFi password (WPA or WPA2).
 

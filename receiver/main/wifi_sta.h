@@ -60,6 +60,24 @@ esp_err_t wifi_sta_set_channel(uint8_t channel);
  */
 esp_err_t wifi_sta_restore_channel(void);
 
+/**
+ * @brief Suppress automatic reconnection after a channel switch.
+ *
+ * esp_wifi_set_channel() disconnects the STA; the event handler would
+ * normally reconnect, pulling the radio back to the home AP channel and
+ * breaking a CSI session. Call with true before switching away, false to
+ * restore normal reconnect behaviour.
+ *
+ * @param suppress  true = do not auto-reconnect on disconnect
+ */
+void wifi_sta_set_reconnect_suppressed(bool suppress);
+
+/**
+ * @brief Check whether reconnect suppression is currently active
+ * @return true if suppression is active
+ */
+bool wifi_sta_is_reconnect_suppressed(void);
+
 #ifdef __cplusplus
 }
 #endif

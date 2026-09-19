@@ -27,7 +27,19 @@ static const char *TAG = "app_main";
 static void session_monitor_task(void *arg)
 {
     while (1) {
-        vTaskDelay(pdMS_TO_TICKS(10000));
+        vTaskDelay(pdMS_TO_TICKS(1000));
+
+        if (web_server_session_is_running()) {
+            uint32_t elapsed = web_server_session_elapsed_s();
+            uint32_t duration = web_server_session_duration_s();
+            // Grace period of 5s beyond the configured duration: the
+            // broadcaster stops beaming on its own timer; we then close the
+            // session, restore the channel and reconnect.
+            if (duration > 0 && elapsed > duration + 5) {
+                ESP_LOGI(TAG, "Session duration reached, auto-stopping");
+                web_server_stop_session();
+            }
+        }
     }
 }
 

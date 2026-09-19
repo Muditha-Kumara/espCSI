@@ -27,13 +27,22 @@ static uint32_t s_work_duration = 0;
 // START command handler
 static void on_start_command(const espnow_start_t *msg)
 {
+    // The receiver retransmits START until it sees an ACK, so a duplicate can
+    // arrive after the session already began. Ignore it (ACK was already sent)
+    // instead of tearing down the running session.
+    if (s_session_active) {
+        ESP_LOGI(TAG, "Session already active, ignoring duplicate START");
+        return;
+    }
+
     ESP_LOGI(TAG, "Starting session: ch=%d rate=%dHz dur=%ds",
              msg->channel, msg->rate_hz, msg->duration_s);
 
     // Stop announce task during session
     espnow_ctrl_stop_announce();
 
-    // Switch to work channel
+    // Switch to work channel (suppress auto-reconnect so the STA stays put)
+    wifi_sta_set_reconnect_suppressed(true);
     wifi_sta_set_channel(msg->channel);
     s_work_channel = msg->channel;
     s_work_rate = msg->rate_hz;

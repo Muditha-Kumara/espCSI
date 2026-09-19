@@ -48,11 +48,19 @@ void espnow_ctrl_on_announce(espnow_announce_cb_t cb);
 void espnow_ctrl_on_ack(espnow_ack_cb_t cb);
 
 /**
- * @brief Send START command to broadcaster
+ * @brief Send START command to broadcaster and wait for its ACK (retries).
  * @param msg  Start message to send
- * @return ESP_OK on success
+ * @return ESP_OK only if the broadcaster acknowledged; ESP_ERR_TIMEOUT otherwise
  */
 esp_err_t espnow_ctrl_send_start(const espnow_start_t *msg);
+
+/**
+ * @brief Wait for any ACK from the broadcaster.
+ * @param ack_cmd    Command expected (currently any ACK counts)
+ * @param timeout_ms Maximum wait in milliseconds
+ * @return true if an ACK arrived in time
+ */
+bool espnow_ctrl_wait_ack(uint8_t ack_cmd, uint32_t timeout_ms);
 
 /**
  * @brief Send STOP command to broadcaster
@@ -73,6 +81,17 @@ esp_err_t espnow_ctrl_send_config(const espnow_config_t *msg);
  * @return true if broadcaster is known
  */
 bool espnow_ctrl_is_paired(void);
+
+/**
+ * @brief Hold pairing state during an active session.
+ *
+ * While a session runs the broadcaster stops announcing, so the normal
+ * announce-staleness timeout would wrongly report "unpaired". Call with
+ * true when a session starts and false when it stops.
+ *
+ * @param hold  true to keep is_paired() true regardless of announce age
+ */
+void espnow_ctrl_session_hold(bool hold);
 
 /**
  * @brief Get the paired broadcaster MAC address

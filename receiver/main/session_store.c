@@ -128,7 +128,7 @@ esp_err_t session_store_list(char *buf, size_t buf_size)
         return ESP_FAIL;
     }
 
-    int offset = snprintf(buf, buf_size, "[");
+    size_t offset = snprintf(buf, buf_size, "[");
     bool first = true;
 
     struct dirent *entry;
@@ -137,6 +137,12 @@ esp_err_t session_store_list(char *buf, size_t buf_size)
         size_t name_len = strlen(entry->d_name);
         if (name_len < 4 || strcmp(entry->d_name + name_len - 4, ".csv") != 0) {
             continue;
+        }
+
+        // Check if we have space left (leave room for closing bracket)
+        if (offset + 100 >= buf_size) {
+            ESP_LOGW(TAG, "Buffer too small for all files, truncating list");
+            break;
         }
 
         // Get file size
@@ -148,13 +154,18 @@ esp_err_t session_store_list(char *buf, size_t buf_size)
         if (!first) {
             offset += snprintf(buf + offset, buf_size - offset, ",");
         }
-        offset += snprintf(buf + offset, buf_size - offset,
+        int written = snprintf(buf + offset, buf_size - offset,
                           "{\"name\":\"%s\",\"size\":%ld}",
                           entry->d_name, (long)st.st_size);
+        if (written > 0) {
+            offset += written;
+        }
         first = false;
     }
 
-    snprintf(buf + offset, buf_size - offset, "]");
+    if (offset < buf_size) {
+        snprintf(buf + offset, buf_size - offset, "]");
+    }
     closedir(dir);
     return ESP_OK;
 }

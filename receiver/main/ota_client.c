@@ -25,6 +25,7 @@ static const char *TAG = "ota_client";
 static ota_state_t s_state = OTA_STATE_IDLE;
 static char s_status_msg[128] = "Idle";
 static SemaphoreHandle_t s_ota_mutex = NULL;
+static SemaphoreHandle_t s_wake_sem = NULL;
 static TaskHandle_t s_ota_task_handle = NULL;
 static bool s_periodic_running = false;
 
@@ -42,7 +43,6 @@ static esp_err_t check_version(void)
 
     esp_http_client_config_t config = {
         .url = url,
-        .crt_bundle_attach = esp_crt_bundle_attach,
         .timeout_ms = 5000,
     };
 
@@ -100,7 +100,6 @@ static esp_err_t perform_ota(void)
 
     esp_http_client_config_t http_config = {
         .url = s_ota_url,
-        .crt_bundle_attach = esp_crt_bundle_attach,
         .timeout_ms = 30000,
     };
 
@@ -157,9 +156,13 @@ static void ota_task(void *arg)
             break;
         }
 
-        vTaskDelay(pdMS_TO_TICKS(OTA_CHECK_INTERVAL_MS));
+        // Sleep until next check or until woken by manual trigger
+        xSemaphoreTake(s_wake_sem, pdMS_TO_TICKS(OTA_CHECK_INTERVAL_MS));
     }
 
+    // Reset state so manual checks work again after task exits
+    s_state = OTA_STATE_IDLE;
+    snprintf(s_status_msg, sizeof(s_status_msg), "Idle");
     s_ota_task_handle = NULL;
     vTaskDelete(NULL);
 }
@@ -169,6 +172,12 @@ esp_err_t ota_client_init(void)
     s_ota_mutex = xSemaphoreCreateMutex();
     if (s_ota_mutex == NULL) {
         ESP_LOGE(TAG, "Failed to create OTA mutex");
+        return ESP_ERR_NO_MEM;
+    }
+
+    s_wake_sem = xSemaphoreCreateBinary();
+    if (s_wake_sem == NULL) {
+        ESP_LOGE(TAG, "Failed to create wake semaphore");
         return ESP_ERR_NO_MEM;
     }
 
@@ -197,11 +206,20 @@ esp_err_t ota_client_start_periodic(void)
 
 esp_err_t ota_client_check_now(void)
 {
-    if (s_ota_task_handle != NULL) {
+    // Check if OTA is actually in progress (checking or downloading)
+    if (ota_client_is_active()) {
         ESP_LOGW(TAG, "OTA already in progress");
         return ESP_ERR_INVALID_STATE;
     }
 
+    // If periodic task is running but idle, wake it up immediately
+    if (s_ota_task_handle != NULL && s_periodic_running) {
+        ESP_LOGI(TAG, "Triggering immediate check");
+        xSemaphoreGive(s_wake_sem);
+        return ESP_OK;
+    }
+
+    // No task running, start a one-shot check
     s_periodic_running = false;
     BaseType_t ret = xTaskCreate(ota_task, "ota_task", OTA_TASK_STACK_SIZE,
                                   NULL, tskIDLE_PRIORITY + 2, &s_ota_task_handle);

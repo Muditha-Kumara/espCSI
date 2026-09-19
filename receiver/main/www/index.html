@@ -299,11 +299,7 @@
                     </div>
                     <div class="form-group">
                         <label for="channel">WiFi Channel</label>
-                        <select id="channel" required>
-                            <option value="1">Channel 1</option>
-                            <option value="6" selected>Channel 6</option>
-                            <option value="11">Channel 11</option>
-                        </select>
+                        <select id="channel" required><!-- options filled by JS, 1-13 --></select>
                     </div>
                     <div class="form-group">
                         <label for="rate">Broadcast Rate (Hz)</label>
@@ -370,6 +366,18 @@
         const API_BASE = '';
         let statusInterval = null;
         let sessionRunning = false;
+
+        // Populate WiFi channel dropdown with all channels 1-13
+        (function populateChannels() {
+            const sel = document.getElementById('channel');
+            for (let ch = 1; ch <= 13; ch++) {
+                const opt = document.createElement('option');
+                opt.value = String(ch);
+                opt.textContent = 'Channel ' + ch;
+                if (ch === 6) opt.selected = true;
+                sel.appendChild(opt);
+            }
+        })();
 
         // Format bytes to human readable
         function formatBytes(bytes) {
