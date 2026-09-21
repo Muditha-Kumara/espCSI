@@ -13,6 +13,8 @@
 **/*.o
 **/*.obj
 
+/thesis/*
+
 # IDE
 .vscode/
 .idea/
